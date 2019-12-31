@@ -55,9 +55,9 @@ class MySQLSchemaService(connection: Connection, database: String) extends Schem
       val cols = rs.stream.map { x =>
         //http://www.herongyang.com/JDBC/sqljdbc-jar-Column-List.html
         Column(x.getString("COLUMN_NAME"), x.getShort("NULLABLE") == 1,  x.getShort("DATA_TYPE"), x.getString(6))
-      }.toList
+      }.toList.sortWith { (a, b) => a.name < b.name }
       Table(t, cols, primaryKey(t))
-    }.toList
+    }.toList.sortWith { (a, b) => a.name < b.name }
     Schema(connection.getCatalog, tables)
   }
 

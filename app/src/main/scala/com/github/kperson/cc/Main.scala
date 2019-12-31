@@ -4,6 +4,7 @@ import java.sql.DriverManager
 
 object Main extends App {
 
+  val bootstrapSQL = scala.io.Source.fromResource("bootstrap.sql").mkString
   val connection = DriverManager
     .getConnection("jdbc:mysql://localhost/change_capture?user=root&password=123456")
 
@@ -19,7 +20,9 @@ object Main extends App {
   val ddlSQL = TriggerSchemaScript(schemaWithoutMetaTables)
   connection.setAutoCommit(false)
 
+  connection.createStatement().execute(bootstrapSQL)
   ddlSQL.foreach { sql =>
+    println(sql)
     val st = connection.createStatement()
     st.execute(sql)
   }

@@ -10,7 +10,7 @@ object TriggerTableScript {
   def apply(table: Table, database: String, shouldCreate: Boolean): List[String] = {
     List("INSERT", "UPDATE", "DELETE").flatMap { e =>
       val h = header(table.name, e)
-      val b = body(table.name, table.columns, table.primaryKey, e, 4)
+      val b = body(table.name, table.columns, table.primaryKey, e)
       val f = footer
       if(shouldCreate) {
         h ++ b ++ f
@@ -29,20 +29,20 @@ object TriggerTableScript {
   }
 
   private def generateJSONPayload(obj: String, columns: List[Column]): String = {
-    //java.sql.Types
     val rows = columns.flatMap { c =>
       (c.dataTypeJava, c.dataTypeNative) match {
         case (TINYINT | SMALLINT | INTEGER | BIGINT, _)  =>
-          Some(s"JSON_KEY_VALUE_INTEGER('${c.name}', ${obj}.`${c.name}`)")
+          Some(s"JSON_KEY_VALUE_INTEGER('${c.name}', $obj.`${c.name}`)")
         case (CHAR | VARCHAR | LONGVARCHAR, _)  =>
-          Some(s"JSON_KEY_VALUE_STRING('${c.name}', ${obj}.`${c.name}`)")
+          Some(s"JSON_KEY_VALUE_STRING('${c.name}', $obj.`${c.name}`)")
         case (BINARY | VARBINARY | LONGVARBINARY, _)  =>
-          Some(s"JSON_KEY_VALUE_BINARY('${c.name}', ${obj}.`${c.name}`)")
-        case (_, "DATETIME") | (DATE, _) => Some(s"JSON_KEY_VALUE_DATETIME('${c.name}', ${obj}.`${c.name}`)")
-        case (_, "TIMESTAMP") => Some(s"JSON_KEY_VALUE_TIMESTAMP('${c.name}', ${obj}.`${c.name}`)")
-        case (DECIMAL, _) => Some(s"JSON_KEY_VALUE_DECIMAL('${c.name}', ${obj}.`${c.name}`)")
-        case (DOUBLE, _) => Some(s"JSON_KEY_VALUE_DOUBLE('${c.name}', ${obj}.`${c.name}`)")
-        case (TIME, _) => Some(s"JSON_KEY_VALUE_TIME('${c.name}', ${obj}.`${c.name}`)")
+          Some(s"JSON_KEY_VALUE_BINARY('${c.name}', $obj.`${c.name}`)")
+        case (_, "DATETIME") | (DATE, _) => Some(s"JSON_KEY_VALUE_DATETIME('${c.name}', $obj.`${c.name}`)")
+        case (_, "TIMESTAMP") => Some(s"JSON_KEY_VALUE_TIMESTAMP('${c.name}', $obj.`${c.name}`)")
+        case (DECIMAL, _) => Some(s"JSON_KEY_VALUE_DECIMAL('${c.name}', $obj.`${c.name}`)")
+        case (DOUBLE, _) => Some(s"JSON_KEY_VALUE_DOUBLE('${c.name}', $obj.`${c.name}`)")
+        case (TIME, _) => Some(s"JSON_KEY_VALUE_TIME('${c.name}', $obj.`${c.name}`)")
+        case (FLOAT | REAL, _) => Some(s"JSON_KEY_VALUE_DOUBLE('${c.name}', $obj.`${c.name}`)")
         case _ => None
       }
     }
@@ -50,7 +50,7 @@ object TriggerTableScript {
   }
 
   private def generatePrimaryKey(obj: String, table: String, columnNames: List[String]): String = {
-    val data: List[String] = columnNames.map { c => List(s"'$c'", s"${obj}.`${c}`") }.flatten
+    val data: List[String] = columnNames.flatMap { c => List(s"'$c'", s"$obj.`$c`") }
     val list = List(s"'$table'") ++ data
     s"CONCAT(${list.mkString(", ")})"
   }
@@ -59,8 +59,7 @@ object TriggerTableScript {
     table: String,
     columns: List[Column],
     primaryKey: List[String],
-    event: String,
-    numPartitions: Int
+    event: String
   ): List[String] = {
     val newPayload = event match {
       case "UPDATE" | "INSERT" => generateJSONPayload("NEW", columns)
@@ -77,29 +76,34 @@ object TriggerTableScript {
     }
     val trigger =
       s"""
-        |CREATE TRIGGER `CC_${table.toUpperCase()}_ON_$event` AFTER $event ON `${table}` FOR EACH ROW
-        |BEGIN
+        | CREATE TRIGGER `CC_${table.toUpperCase()}_ON_$event` AFTER $event ON `$table` FOR EACH ROW
+        | BEGIN
+        | DECLARE numPartitions INT;
         |	DECLARE numJobs INT;
         |	DECLARE partitionKey INT;
+        | DECLARE isPartition BIT;
         |	DECLARE changeValue TEXT;
         | DECLARE primaryKeyHash VARCHAR(255);
+        | DECLARE lockId VARCHAR(255);
+        | SET numPartitions = (SELECT num_partitions FROM cc_log_settings);
         | SET primaryKeyHash = MD5(${generatePrimaryKey(primaryKeyObj, table, primaryKey)});
-        | SET partitionKey = CC_PARTITION_VALUE(primaryKeyHash, $numPartitions);
+        | SET partitionKey = CC_PARTITION_VALUE(primaryKeyHash, numPartitions);
         |	SET changeValue = JSON_CHANGE_CAPTURE(
-        |		'${event}',
+        |		'$event',
         |		'$table',
         |		$newPayload,
         |		$oldPayload
         |	);
-        |	INSERT INTO cc_log (partition_key, change_value) VALUES (partitionKey, changeValue);
-        |	INSERT INTO cc_log_meta (partition_key, num_jobs, locked_at, is_running) VALUES (partitionKey, 1, UNIX_TIMESTAMP(), 0) ON DUPLICATE KEY UPDATE num_jobs = num_jobs + 1;
+        | SET isPartition = (SELECT is_partition FROM cc_log_settings);
+        |	INSERT INTO cc_log (partition_key, change_value, is_partition) VALUES (partitionKey, changeValue, isPartition);
+        |	INSERT INTO cc_log_meta (partition_key, num_jobs) VALUES (partitionKey, 1) ON DUPLICATE KEY UPDATE num_jobs = num_jobs + 1;
         |	SET numJobs = (SELECT COUNT(*) FROM cc_log_meta WHERE partition_key = partitionKey AND (locked_at + 60 * 5 < UNIX_TIMESTAMP() OR num_jobs = 1));
-        |	IF numJobs = 1 THEN
-        |		UPDATE cc_log_meta SET is_running = 1 WHERE partition_key = partitionKey;
+        |	IF numJobs = 1 AND isPartition = 0 THEN
+        |   SET lockId = UUID();
+        |		UPDATE cc_log_meta SET lock_id = lockId, locked_at = UNIX_TIMESTAMP() WHERE partition_key = partitionKey;
         |	END IF;
-        |END
+        | END
         |""".stripMargin
-
         List(trigger)
   }
 
