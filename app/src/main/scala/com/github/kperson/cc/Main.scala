@@ -1,10 +1,10 @@
 package com.github.kperson.cc
 
+import java.io.StringReader
 import java.sql.DriverManager
 
 object Main extends App {
 
-  val bootstrapSQL = scala.io.Source.fromResource("bootstrap.sql").mkString
   val connection = DriverManager
     .getConnection("jdbc:mysql://localhost/change_capture?user=root&password=123456")
 
@@ -16,13 +16,16 @@ object Main extends App {
     t.name.toLowerCase == "cc_log" || t.name.toLowerCase == "cc_log_meta"
   })
 
-  println(schemaWithoutMetaTables)
   val ddlSQL = TriggerSchemaScript(schemaWithoutMetaTables)
   connection.setAutoCommit(false)
-
-  connection.createStatement().execute(bootstrapSQL)
-  ddlSQL.foreach { sql =>
+  val bootstrapStatements = scala.io.Source.fromResource("bootstrap.sql").mkString.split("""\|\|\|\|""").toList
+  bootstrapStatements.foreach { sql =>
     println(sql)
+    val st = connection.createStatement()
+    st.execute(sql)
+  }
+
+  ddlSQL.foreach { sql =>
     val st = connection.createStatement()
     st.execute(sql)
   }

@@ -81,27 +81,21 @@ object TriggerTableScript {
         | DECLARE numPartitions INT;
         |	DECLARE numJobs INT;
         |	DECLARE partitionKey INT;
-        | DECLARE isPartition BIT;
+        | DECLARE isPartitioning BIT;
         |	DECLARE changeValue TEXT;
         | DECLARE primaryKeyHash VARCHAR(255);
         | DECLARE lockId VARCHAR(255);
         | SET numPartitions = (SELECT num_partitions FROM cc_log_settings);
         | SET primaryKeyHash = MD5(${generatePrimaryKey(primaryKeyObj, table, primaryKey)});
-        | SET partitionKey = CC_PARTITION_VALUE(primaryKeyHash, numPartitions);
+        | SET partitionKey = CAST(CC_PARTITION_VALUE(primaryKeyHash, numPartitions) AS CHAR(255));
         |	SET changeValue = JSON_CHANGE_CAPTURE(
         |		'$event',
         |		'$table',
         |		$newPayload,
         |		$oldPayload
         |	);
-        | SET isPartition = (SELECT is_partition FROM cc_log_settings);
-        |	INSERT INTO cc_log (partition_key, change_value, is_partition) VALUES (partitionKey, changeValue, isPartition);
-        |	INSERT INTO cc_log_meta (partition_key, num_jobs) VALUES (partitionKey, 1) ON DUPLICATE KEY UPDATE num_jobs = num_jobs + 1;
-        |	SET numJobs = (SELECT COUNT(*) FROM cc_log_meta WHERE partition_key = partitionKey AND (locked_at + 60 * 5 < UNIX_TIMESTAMP() OR num_jobs = 1));
-        |	IF numJobs = 1 AND isPartition = 0 THEN
-        |   SET lockId = UUID();
-        |		UPDATE cc_log_meta SET lock_id = lockId, locked_at = UNIX_TIMESTAMP() WHERE partition_key = partitionKey;
-        |	END IF;
+        | SET isPartitioning = (SELECT is_partitioning FROM cc_log_settings);
+        |	INSERT INTO cc_log (partition_key, change_value, is_partitioning) VALUES (partitionKey, changeValue, isPartitioning);
         | END
         |""".stripMargin
         List(trigger)

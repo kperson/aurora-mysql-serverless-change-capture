@@ -1,5 +1,38 @@
-
+CREATE TABLE IF NOT EXISTS `cc_log` (
+  `id` BIGINT(20) unsigned NOT NULL AUTO_INCREMENT,
+  `partition_key` VARCHAR(255) NOT NULL,
+  `change_value` TEXT NOT NULL,
+  `is_partitioning` BIT(1) NOT NULL,
+  PRIMARY KEY (`id`)
+);
+||||
+CREATE TABLE IF NOT EXISTS `cc_log_meta` (
+  `partition_key` VARCHAR(255) NOT NULL,
+  `num_jobs` INT(11) NOT NULL,
+  `lock_id` VARCHAR(255) DEFAULT NULL,
+  `locked_at` INT(11) DEFAULT NULL,
+  PRIMARY KEY (`partition_key`)
+);
+||||
+CREATE TABLE IF NOT EXISTS `cc_log_settings` (
+  `id` BIT NOT NULL,
+  `is_partitioning` BIT NOT NULL,
+  `num_partitions` INT UNSIGNED NOT NULL,
+  `cdc_lambda` VARCHAR(255) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+);
+||||
+CREATE TABLE IF NOT EXISTS `cc_log_dev_jobs` (
+  `id` BIGINT(20) unsigned NOT NULL AUTO_INCREMENT,
+  `partition_key` VARCHAR(255) NOT NULL,
+  `lock_id` VARCHAR(255) NOT NULL,
+  PRIMARY KEY (`id`)
+);
+||||
+INSERT IGNORE INTO cc_log_settings (id, is_partitioning, num_partitions) VALUES (1, 0, 4);
+||||
 DROP FUNCTION IF EXISTS BASE64_ESCAPE_TEXT;
+||||
 CREATE FUNCTION BASE64_ESCAPE_TEXT(v TEXT)
 RETURNS TEXT
 DETERMINISTIC
@@ -11,9 +44,10 @@ BEGIN
 			CONCAT('"', TO_BASE64(v), '"')
         END
 	);
-END;
-
+END
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_OBJECT;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_OBJECT(k VARCHAR(255), v TEXT, dateType VARCHAR(255))
 RETURNS TEXT
 DETERMINISTIC
@@ -26,8 +60,9 @@ BEGIN
         END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_STRING;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_STRING(k VARCHAR(255), v TEXT)
 RETURNS TEXT
 DETERMINISTIC
@@ -42,72 +77,73 @@ BEGIN
 		END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_INTEGER;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_INTEGER(k VARCHAR(255), v BIGINT)
 RETURNS TEXT
 DETERMINISTIC
 BEGIN
     DECLARE rs TEXT;
-	RETURN (
-		CASE WHEN v IS NULL THEN
-			JSON_KEY_VALUE_OBJECT(k, NULL, 'integer')
-
-		ELSE
+    RETURN (
+        CASE WHEN v IS NULL THEN
+            JSON_KEY_VALUE_OBJECT(k, NULL, 'integer')
+        ELSE
             JSON_KEY_VALUE_OBJECT(k, CONCAT('"', v, '"'), 'integer')
-		END
+        END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_DOUBLE;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_DOUBLE(k VARCHAR(255), v DOUBLE)
 RETURNS TEXT
 DETERMINISTIC
 BEGIN
     DECLARE rs TEXT;
-	RETURN (
-		CASE WHEN v IS NULL THEN
-			JSON_KEY_VALUE_OBJECT(k, NULL, 'double')
-
-		ELSE
+    RETURN (
+        CASE WHEN v IS NULL THEN
+            JSON_KEY_VALUE_OBJECT(k, NULL, 'double')
+        ELSE
             JSON_KEY_VALUE_OBJECT(k, CONCAT('"', v, '"'), 'double')
-		END
+        END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_TIME;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_TIME(k VARCHAR(255), v TIME)
 RETURNS TEXT
 DETERMINISTIC
 BEGIN
     DECLARE rs TEXT;
-	RETURN (
-		CASE WHEN v IS NULL THEN
-			JSON_KEY_VALUE_OBJECT(k, NULL, 'time')
-
-		ELSE
+    RETURN (
+        CASE WHEN v IS NULL THEN
+            JSON_KEY_VALUE_OBJECT(k, NULL, 'time')
+        ELSE
             JSON_KEY_VALUE_OBJECT(k, CONCAT('"', TIME_TO_SEC(v), '"'), 'time')
-		END
+        END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_BINARY;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_BINARY(k VARCHAR(255), v LONGBLOB)
 RETURNS TEXT
 DETERMINISTIC
 BEGIN
     DECLARE rs TEXT;
-	RETURN (
-		CASE WHEN v IS NULL THEN
-			JSON_KEY_VALUE_OBJECT(k, NULL, 'binary')
-
-		ELSE
+    RETURN (
+        CASE WHEN v IS NULL THEN
+            JSON_KEY_VALUE_OBJECT(k, NULL, 'binary')
+        ELSE
             JSON_KEY_VALUE_OBJECT(k, CONCAT('"', TO_BASE64(v), '"'), 'binary')
-		END
+        END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_TIMESTAMP;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_TIMESTAMP(k VARCHAR(255), v TIMESTAMP)
 RETURNS TEXT
 DETERMINISTIC
@@ -122,8 +158,9 @@ BEGIN
 		END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_DATETIME;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_DATETIME(k VARCHAR(255), v DATETIME)
 RETURNS TEXT
 DETERMINISTIC
@@ -138,9 +175,9 @@ BEGIN
 		END
     );
 END
-
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_DECIMAL;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_DECIMAL(k VARCHAR(255), v DECIMAL(60, 30))
 RETURNS TEXT
 DETERMINISTIC
@@ -155,8 +192,9 @@ BEGIN
 		END
     );
 END
-
+||||
 DROP FUNCTION IF EXISTS JSON_KEY_VALUE_BOOLEAN;
+||||
 CREATE FUNCTION JSON_KEY_VALUE_BOOLEAN(k VARCHAR(255), v BIT)
 RETURNS TEXT
 DETERMINISTIC
@@ -172,39 +210,23 @@ BEGIN
 		END
     );
 END
-
-
+||||
 DROP FUNCTION IF EXISTS JSON_CHANGE_CAPTURE;
+||||
 CREATE FUNCTION JSON_CHANGE_CAPTURE(action VARCHAR(255), tableName VARCHAR(255), newValue TEXT, oldValue TEXT)
 RETURNS TEXT
 DETERMINISTIC
 BEGIN
 	RETURN CONCAT('{ "action": "', action, '", "tableName": "', tableName, '", "newValue": ', newValue, ', "oldValue": ', oldValue, ' }');
 END
-
-DROP FUNCTION IF EXISTS JSON_WRAP_ARRAY;
-CREATE FUNCTION JSON_WRAP_ARRAY(k VARCHAR(255), ARRAY )
-RETURNS TEXT
-DETERMINISTIC
-BEGIN
-    DECLARE rs TEXT;
-	RETURN (
-		CASE WHEN v IS NULL THEN
-			JSON_KEY_VALUE_OBJECT(k, NULL, 'boolean')
-		WHEN v = 1 THEN
-            JSON_KEY_VALUE_OBJECT(k, '"true"', 'boolean')
-        ELSE
-            JSON_KEY_VALUE_OBJECT(k, '"false"', 'boolean')
-		END
-    );
-END
-
+||||
 DROP FUNCTION IF EXISTS CC_HASH_CODE;
+||||
 CREATE FUNCTION CC_HASH_CODE (v TEXT) RETURNS INT(11)
     DETERMINISTIC
 BEGIN
-	DECLARE hashVal VARCHAR(255);
-	DECLARE rs INTEGER;
+    DECLARE hashVal VARCHAR(255);
+    DECLARE rs INTEGER;
     DECLARE increment INTEGER;
     DECLARE currentChar VARCHAR(1);
     DECLARE currentIndex INTEGER;
@@ -212,7 +234,7 @@ BEGIN
     SET rs = 0;
     SET hashVal = LOWER(MD5(v));
     iterator:
-	LOOP
+    LOOP
 		IF currentIndex > LENGTH(hashVal) THEN
 			LEAVE iterator;
 		END IF;
@@ -252,17 +274,98 @@ BEGIN
 	END LOOP;
     RETURN rs;
 END
-
-
+||||
 DROP FUNCTION IF EXISTS CC_PARTITION_VALUE;
+||||
 CREATE FUNCTION CC_PARTITION_VALUE (v TEXT, numPartitions INT(11)) RETURNS INT(11)
     DETERMINISTIC
 BEGIN
 	RETURN CC_HASH_CODE(v) % numPartitions;
 END
-
-DROP FUNCTION IF EXISTS CC_PARTITION_LOCK;
-CREATE FUNCTION CC_PARTITION_LOCK (partitionKey INT(11), forceLock) RETURNS BIT
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_ON_INSERT`;
+||||
+CREATE TRIGGER `CC_CC_LOG_ON_INSERT` AFTER INSERT ON `cc_log` FOR EACH ROW
+    BEGIN
+    IF NEW.`is_partitioning` = 0 THEN
+        INSERT INTO cc_log_meta (partition_key, num_jobs) VALUES (NEW.`partition_key`, 1) ON DUPLICATE KEY UPDATE num_jobs = num_jobs + 1;
+    END IF;
+END
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_ON_DELETE`;
+||||
+CREATE TRIGGER `CC_CC_LOG_ON_DELETE` AFTER DELETE ON `cc_log` FOR EACH ROW
+    BEGIN
+    IF OLD.`is_partitioning` = 0 THEN
+        INSERT INTO cc_log_meta (partition_key, num_jobs) VALUES (OLD.`partition_key`, 0) ON DUPLICATE KEY UPDATE num_jobs = num_jobs - 1;
+    END IF;
+END
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_ON_UPDATE`;
+||||
+CREATE TRIGGER `CC_CC_LOG_ON_UPDATE` AFTER UPDATE ON `cc_log` FOR EACH ROW
 BEGIN
-	SELECT is_running FROM cc_log_meta WHERE partitionKey = partitionKey;
+    IF OLD.`is_partitioning` = 1 AND NEW.`is_partitioning` = 0 THEN
+        INSERT INTO cc_log_meta (partition_key, num_jobs) VALUES (NEW.`partition_key`, 1) ON DUPLICATE KEY UPDATE num_jobs = num_jobs + 1;
+    END IF;
+END
+||||
+DROP PROCEDURE IF EXISTS CC_TRIGGER_PARTITION_JOB;
+||||
+CREATE PROCEDURE CC_TRIGGER_PARTITION_JOB (
+    IN partitionKey VARCHAR(255),
+	IN lockId VARCHAR(255)
+) LANGUAGE SQL
+BEGIN
+    DECLARE cdcLambda VARCHAR(255);
+    SET cdcLambda = (SELECT cdc_lambda FROM cc_log_settings WHERE id = 1);
+    IF cdcLambda IS NOT NULL THEN
+        CALL mysql.lambda_async(
+            cdcLambda,
+            CONCAT('{ "partitionKey": "', partitionKey, '", "lockId": "', lockId, '" }')
+        );
+    ELSE
+        INSERT INTO cc_log_dev_jobs(lock_id, partition_key) VALUES (lockId, partitionKey);
+    END IF;
+END
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_META_BEFORE_INSERT`;
+||||
+CREATE TRIGGER `CC_CC_LOG_META_BEFORE_INSERT` BEFORE INSERT ON `cc_log_meta` FOR EACH ROW
+BEGIN
+    IF NEW.`num_jobs` = 1 THEN
+        SET NEW.`lock_id` = UUID();
+        SET NEW.`locked_at` = UNIX_TIMESTAMP();
+    END IF;
+END
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_META_BEFORE_UPDATE`;
+||||
+CREATE TRIGGER `CC_CC_LOG_META_BEFORE_UPDATE` BEFORE UPDATE ON `cc_log_meta` FOR EACH ROW
+BEGIN
+    IF NEW.`num_jobs` = 1 AND OLD.`num_jobs` = 0 THEN
+        SET NEW.`lock_id` = UUID();
+        SET NEW.`locked_at` = UNIX_TIMESTAMP();
+    ELSEIF NEW.`num_jobs` = 0 AND OLD.`num_jobs` = 1 THEN
+        SET NEW.`lock_id` = NULL;
+        SET NEW.`locked_at` = NULL;
+    END IF;
+END
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_META_AFTER_INSERT`;
+||||
+CREATE TRIGGER `CC_CC_LOG_META_AFTER_INSERT` AFTER INSERT ON `cc_log_meta` FOR EACH ROW
+BEGIN
+    IF NEW.`num_jobs` = 1 AND NEW.`lock_id` IS NOT NULL THEN
+        CALL CC_TRIGGER_PARTITION_JOB(NEW.`partition_key`, NEW.`lock_id`);
+    END IF;
+END
+||||
+DROP TRIGGER IF EXISTS `CC_CC_LOG_META_AFTER_UPDATE`;
+||||
+CREATE TRIGGER `CC_CC_LOG_META_AFTER_UPDATE` AFTER UPDATE ON `cc_log_meta` FOR EACH ROW
+BEGIN
+    IF NEW.`num_jobs` = 1 AND OLD.`num_jobs` = 0 AND NEW.`lock_id` IS NOT NULL THEN
+        CALL CC_TRIGGER_PARTITION_JOB(NEW.`partition_key`, NEW.`lock_id`);
+    END IF;
 END
